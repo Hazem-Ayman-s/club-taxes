@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>إدارة غرامات العضويات</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="container">
+      <h1>إدارة غرامات العضويات</h1>
+      <p>حساب ومتابعة المبالغ المستحقة للعضويات</p>
+    </div>
+  </header>
+
+  <section class="container" id="loadError" hidden>
+    <div class="card empty">
+      <p>تعذّر تحميل البيانات من السيرفر. تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى.</p>
+      <button type="button" class="btn btn-primary" id="retryBtn">إعادة المحاولة</button>
+    </div>
+  </section>
+
+  <main class="container" id="app" hidden>
+    <!-- الإحصائيات -->
+    <section class="stats" aria-label="الإحصائيات">
+      <div class="stat"><span class="stat-label">إجمالي العضويات</span><strong id="statMembers">0</strong></div>
+      <div class="stat"><span class="stat-label">إجمالي السنوات غير المدفوعة</span><strong id="statYears">0</strong></div>
+      <div class="stat"><span class="stat-label">إجمالي المبالغ المستحقة</span><strong id="statAmount">0</strong></div>
+      <div class="stat"><span class="stat-label">عدد السجلات الحالية</span><strong id="statRecords">0</strong></div>
+    </section>
+
+    <!-- إضافة عضوية -->
+    <section class="card" id="addSection" aria-labelledby="addTitle">
+      <h2 id="addTitle">إضافة عضوية</h2>
+      <form id="addForm" novalidate>
+        <div class="form-grid">
+          <div class="field">
+            <label for="nameInput">اسم الشخص</label>
+            <input type="text" id="nameInput" placeholder="أدخل اسم الشخص" autocomplete="off">
+            <small class="error" id="nameError" role="alert"></small>
+          </div>
+          <div class="field">
+            <label for="yearsInput">عدد السنوات</label>
+            <input type="number" id="yearsInput" placeholder="أدخل عدد السنوات" min="1" step="1" inputmode="numeric">
+            <small class="error" id="yearsError" role="alert"></small>
+          </div>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn btn-primary" id="calcBtn">حساب المبلغ</button>
+          <button type="submit" class="btn btn-success" id="saveBtn">حفظ العضوية</button>
+        </div>
+      </form>
+
+      <div class="result" id="result" hidden>
+        <span>المبلغ المستحق</span>
+        <strong id="resultAmount">0</strong>
+        <details class="accordion">
+          <summary>عرض تفاصيل الحساب</summary>
+          <div id="resultBreakdown" class="table-wrap"></div>
+        </details>
+      </div>
+    </section>
+
+    <!-- السجل -->
+    <section class="card" aria-labelledby="listTitle">
+      <div class="list-head">
+        <h2 id="listTitle">سجل العضويات</h2>
+        <div class="toolbar">
+          <input type="search" id="searchInput" placeholder="البحث عن عضو..." aria-label="البحث عن عضو">
+          <button type="button" class="btn btn-outline" id="importBtn">استيراد Excel</button>
+          <button type="button" class="btn btn-outline" id="exportBtn">تصدير إلى Excel</button>
+          <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+        </div>
+      </div>
+
+      <div class="table-wrap" id="tableWrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>اسم الشخص</th><th>عدد السنوات</th>
+              <th>المبلغ المطلوب</th><th>تاريخ الإضافة</th><th>الإجراءات</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="empty" id="emptyState" hidden>
+        <p id="emptyText">لا توجد عضويات مسجلة حاليًا</p>
+        <button type="button" class="btn btn-primary" id="emptyAddBtn">إضافة عضوية</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- نافذة التعديل -->
+  <dialog id="editModal" aria-labelledby="editTitle">
+    <form id="editForm" novalidate>
+      <h3 id="editTitle">تعديل العضوية</h3>
+      <div class="field">
+        <label for="editName">اسم الشخص</label>
+        <input type="text" id="editName" autocomplete="off">
+        <small class="error" id="editNameError" role="alert"></small>
+      </div>
+      <div class="field">
+        <label for="editYears">عدد السنوات</label>
+        <input type="number" id="editYears" min="1" step="1" inputmode="numeric">
+        <small class="error" id="editYearsError" role="alert"></small>
+      </div>
+      <p class="hint">المبلغ الجديد: <strong id="editAmount">0</strong></p>
+      <div class="actions">
+        <button type="button" class="btn btn-outline" data-close>إلغاء</button>
+        <button type="submit" class="btn btn-primary">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- نافذة الحذف -->
+  <dialog id="deleteModal" aria-labelledby="deleteTitle">
+    <h3 id="deleteTitle">تأكيد الحذف</h3>
+    <p>هل أنت متأكد من حذف هذا السجل؟</p>
+    <div class="actions">
+      <button type="button" class="btn btn-outline" data-close>إلغاء</button>
+      <button type="button" class="btn btn-danger" id="confirmDelete">حذف</button>
+    </div>
+  </dialog>
+
+  <!-- نافذة التفاصيل -->
+  <dialog id="detailsModal" aria-labelledby="detailsTitle">
+    <h3 id="detailsTitle">تفاصيل الحساب</h3>
+    <div id="detailsBody" class="table-wrap"></div>
+    <div class="actions"><button type="button" class="btn btn-outline" data-close>إغلاق</button></div>
+  </dialog>
+
+  <div class="loading" id="loading"><div class="spinner"></div><p id="loadingText">جاري تحميل البيانات من السيرفر...</p></div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <!-- Firebase (Firestore) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+
+  <!-- مكتبة SheetJS من CDN (مطلوبة للاستيراد والتصدير فقط) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="script.js"></script>
+</body>
+</html>

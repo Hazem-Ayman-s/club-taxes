@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // مسموح فقط للمستخدمين الموثّقين الذين أُضيف بريدهم يدويًا في collection اسمه allowed_users
+    // (اسم الـ document = البريد الإلكتروني بحروف صغيرة)
+    function isStaff() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/allowed_users/$(request.auth.token.email));
+    }
+
+    match /membership_fines/{id} {
+      allow read, write: if isStaff();
+    }
+  }
+}
