@@ -10,93 +10,137 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="app-header">
-    <div class="container">
-      <h1>إدارة غرامات العضويات</h1>
-      <p>حساب ومتابعة المبالغ المستحقة للعضويات</p>
-    </div>
-  </header>
+  <!-- شاشة التحميل الأولية: تبقى ظاهرة حتى يُحسم تسجيل الدخول وتصل البيانات -->
+  <div class="splash" id="splash"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
 
-  <section class="container" id="loadError" hidden>
-    <div class="card empty">
-      <p>تعذّر تحميل البيانات من السيرفر. تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى.</p>
-      <button type="button" class="btn btn-primary" id="retryBtn">إعادة المحاولة</button>
+  <!-- صفحة تسجيل الدخول -->
+  <section class="login-wrap" id="loginView" hidden>
+    <div class="card login-card">
+      <h1>إدارة غرامات العضويات</h1>
+      <p class="login-sub">تسجيل الدخول إلى النظام</p>
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="emailInput">البريد الإلكتروني</label>
+          <input type="email" id="emailInput" placeholder="أدخل البريد الإلكتروني" autocomplete="email" dir="ltr" inputmode="email">
+          <small class="error" id="emailError" role="alert"></small>
+        </div>
+        <div class="field">
+          <label for="passwordInput">كلمة المرور</label>
+          <input type="password" id="passwordInput" placeholder="أدخل كلمة المرور" autocomplete="current-password" dir="ltr">
+          <small class="error" id="passwordError" role="alert"></small>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="loginBtn">تسجيل الدخول</button>
+      </form>
+      <p class="notice" id="loginNotice" role="status" hidden></p>
     </div>
   </section>
 
-  <main class="container" id="app" hidden>
-    <!-- الإحصائيات -->
-    <section class="stats" aria-label="الإحصائيات">
-      <div class="stat"><span class="stat-label">إجمالي العضويات</span><strong id="statMembers">0</strong></div>
-      <div class="stat"><span class="stat-label">إجمالي السنوات غير المدفوعة</span><strong id="statYears">0</strong></div>
-      <div class="stat"><span class="stat-label">إجمالي المبالغ المستحقة</span><strong id="statAmount">0</strong></div>
-      <div class="stat"><span class="stat-label">عدد السجلات الحالية</span><strong id="statRecords">0</strong></div>
-    </section>
+  <!-- شاشة خطأ التحميل -->
+  <section class="login-wrap" id="errorView" hidden>
+    <div class="card login-card">
+      <p id="errorText">تعذر الاتصال بقاعدة البيانات.</p>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="retryBtn">إعادة المحاولة</button>
+        <button type="button" class="btn btn-outline" id="errorLogoutBtn">تسجيل الخروج</button>
+      </div>
+    </div>
+  </section>
 
-    <!-- إضافة عضوية -->
-    <section class="card" id="addSection" aria-labelledby="addTitle">
-      <h2 id="addTitle">إضافة عضوية</h2>
-      <form id="addForm" novalidate>
-        <div class="form-grid">
-          <div class="field">
-            <label for="nameInput">اسم الشخص</label>
-            <input type="text" id="nameInput" placeholder="أدخل اسم الشخص" autocomplete="off">
-            <small class="error" id="nameError" role="alert"></small>
+  <!-- لوحة التحكم -->
+  <div id="app" hidden>
+    <header class="app-header">
+      <div class="container">
+        <div>
+          <h1>إدارة غرامات العضويات</h1>
+          <p>حساب ومتابعة المبالغ المستحقة للعضويات</p>
+        </div>
+        <div class="header-user">
+          <span id="userEmail" dir="ltr"></span>
+          <button type="button" class="btn btn-ghost btn-sm" id="logoutBtn">تسجيل الخروج</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="stats" aria-label="الإحصائيات">
+        <div class="stat"><span class="stat-label">إجمالي العضويات</span><strong id="statMembers">0</strong></div>
+        <div class="stat"><span class="stat-label">إجمالي السنوات غير المدفوعة</span><strong id="statYears">0</strong></div>
+        <div class="stat"><span class="stat-label">إجمالي المبالغ المستحقة</span><strong id="statAmount">0</strong></div>
+        <div class="stat"><span class="stat-label">السجلات المعروضة حاليًا</span><strong id="statRecords">0</strong></div>
+        <div class="stat stat-ok"><span class="stat-label">إجمالي المبالغ المدفوعة</span><strong id="statPaidAmount">0</strong></div>
+        <div class="stat stat-warn"><span class="stat-label">إجمالي المبالغ غير المدفوعة</span><strong id="statUnpaidAmount">0</strong></div>
+        <div class="stat stat-ok"><span class="stat-label">عدد العضويات المدفوعة</span><strong id="statPaidCount">0</strong></div>
+        <div class="stat stat-warn"><span class="stat-label">عدد العضويات غير المدفوعة</span><strong id="statUnpaidCount">0</strong></div>
+      </section>
+
+      <section class="card" id="addSection" aria-labelledby="addTitle">
+        <h2 id="addTitle">إضافة عضوية</h2>
+        <form id="addForm" novalidate>
+          <div class="form-grid">
+            <div class="field">
+              <label for="nameInput">اسم الشخص</label>
+              <input type="text" id="nameInput" placeholder="أدخل اسم الشخص" autocomplete="off">
+              <small class="error" id="nameError" role="alert"></small>
+            </div>
+            <div class="field">
+              <label for="yearsInput">عدد السنوات</label>
+              <input type="number" id="yearsInput" placeholder="أدخل عدد السنوات" min="1" step="1" inputmode="numeric">
+              <small class="error" id="yearsError" role="alert"></small>
+            </div>
           </div>
-          <div class="field">
-            <label for="yearsInput">عدد السنوات</label>
-            <input type="number" id="yearsInput" placeholder="أدخل عدد السنوات" min="1" step="1" inputmode="numeric">
-            <small class="error" id="yearsError" role="alert"></small>
+          <div class="actions">
+            <button type="button" class="btn btn-primary" id="calcBtn">حساب المبلغ</button>
+            <button type="submit" class="btn btn-success" id="saveBtn">حفظ العضوية</button>
+          </div>
+        </form>
+
+        <div class="result" id="result" hidden>
+          <span>الإجمالي المطلوب</span>
+          <strong id="resultAmount">0</strong>
+          <small class="result-sum" id="resultSummary"></small>
+          <details class="accordion">
+            <summary>عرض تفاصيل الحساب</summary>
+            <div id="resultBreakdown" class="table-wrap"></div>
+          </details>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="listTitle">
+        <div class="list-head">
+          <h2 id="listTitle">سجل العضويات</h2>
+          <div class="toolbar">
+            <input type="search" id="searchInput" placeholder="ابحث بالاسم أو رقم الإيصال..." aria-label="ابحث بالاسم أو رقم الإيصال">
+            <select id="statusFilter" aria-label="تصفية حسب حالة الدفع">
+              <option value="all">كل العضويات</option>
+              <option value="unpaid">غير مدفوع</option>
+              <option value="paid">تم الدفع</option>
+            </select>
+            <button type="button" class="btn btn-outline" id="importBtn">استيراد Excel</button>
+            <button type="button" class="btn btn-outline" id="exportBtn">تصدير إلى Excel</button>
+            <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
           </div>
         </div>
-        <div class="actions">
-          <button type="button" class="btn btn-primary" id="calcBtn">حساب المبلغ</button>
-          <button type="submit" class="btn btn-success" id="saveBtn">حفظ العضوية</button>
+
+        <div class="table-wrap" id="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>اسم الشخص</th><th>عدد السنوات</th><th>المبلغ المطلوب</th>
+                <th>حالة الدفع</th><th>رقم الإيصال</th><th>تاريخ الإضافة</th><th>الإجراءات</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
         </div>
-      </form>
 
-      <div class="result" id="result" hidden>
-        <span>المبلغ المستحق</span>
-        <strong id="resultAmount">0</strong>
-        <details class="accordion">
-          <summary>عرض تفاصيل الحساب</summary>
-          <div id="resultBreakdown" class="table-wrap"></div>
-        </details>
-      </div>
-    </section>
-
-    <!-- السجل -->
-    <section class="card" aria-labelledby="listTitle">
-      <div class="list-head">
-        <h2 id="listTitle">سجل العضويات</h2>
-        <div class="toolbar">
-          <input type="search" id="searchInput" placeholder="البحث عن عضو..." aria-label="البحث عن عضو">
-          <button type="button" class="btn btn-outline" id="importBtn">استيراد Excel</button>
-          <button type="button" class="btn btn-outline" id="exportBtn">تصدير إلى Excel</button>
-          <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+        <div class="empty" id="emptyState" hidden>
+          <p id="emptyText">لا توجد عضويات مسجلة حاليًا</p>
+          <button type="button" class="btn btn-primary" id="emptyAddBtn">إضافة عضوية</button>
         </div>
-      </div>
+      </section>
+    </main>
+  </div>
 
-      <div class="table-wrap" id="tableWrap">
-        <table>
-          <thead>
-            <tr>
-              <th>#</th><th>اسم الشخص</th><th>عدد السنوات</th>
-              <th>المبلغ المطلوب</th><th>تاريخ الإضافة</th><th>الإجراءات</th>
-            </tr>
-          </thead>
-          <tbody id="tableBody"></tbody>
-        </table>
-      </div>
-
-      <div class="empty" id="emptyState" hidden>
-        <p id="emptyText">لا توجد عضويات مسجلة حاليًا</p>
-        <button type="button" class="btn btn-primary" id="emptyAddBtn">إضافة عضوية</button>
-      </div>
-    </section>
-  </main>
-
-  <!-- نافذة التعديل -->
   <dialog id="editModal" aria-labelledby="editTitle">
     <form id="editForm" novalidate>
       <h3 id="editTitle">تعديل العضوية</h3>
@@ -110,7 +154,7 @@
         <input type="number" id="editYears" min="1" step="1" inputmode="numeric">
         <small class="error" id="editYearsError" role="alert"></small>
       </div>
-      <p class="hint">المبلغ الجديد: <strong id="editAmount">0</strong></p>
+      <p class="hint">الإجمالي الجديد (شامل الطوابع): <strong id="editAmount">0</strong></p>
       <div class="actions">
         <button type="button" class="btn btn-outline" data-close>إلغاء</button>
         <button type="submit" class="btn btn-primary">حفظ</button>
@@ -118,7 +162,6 @@
     </form>
   </dialog>
 
-  <!-- نافذة الحذف -->
   <dialog id="deleteModal" aria-labelledby="deleteTitle">
     <h3 id="deleteTitle">تأكيد الحذف</h3>
     <p>هل أنت متأكد من حذف هذا السجل؟</p>
@@ -128,22 +171,46 @@
     </div>
   </dialog>
 
-  <!-- نافذة التفاصيل -->
-  <dialog id="detailsModal" aria-labelledby="detailsTitle">
+  <dialog id="receiptModal" aria-labelledby="receiptTitle">
+    <form id="receiptForm" novalidate>
+      <h3 id="receiptTitle">تسجيل عملية الدفع</h3>
+      <p class="hint" id="receiptMember"></p>
+      <div class="field">
+        <label for="receiptInput">رقم الإيصال</label>
+        <input type="text" id="receiptInput" placeholder="أدخل رقم الإيصال" autocomplete="off" maxlength="50" dir="ltr">
+        <small class="error" id="receiptError" role="alert"></small>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-outline" data-close>إلغاء</button>
+        <button type="submit" class="btn btn-primary" id="receiptSubmit">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="unpayModal" aria-labelledby="unpayTitle">
+    <h3 id="unpayTitle">إلغاء الدفع</h3>
+    <p>هل أنت متأكد من إلغاء حالة الدفع؟</p>
+    <p class="hint">سيتم أيضًا حذف رقم الإيصال المرتبط بالعضوية.</p>
+    <div class="actions">
+      <button type="button" class="btn btn-outline" data-close>إلغاء</button>
+      <button type="button" class="btn btn-danger" id="confirmUnpay">تأكيد</button>
+    </div>
+  </dialog>
+
+  <dialog id="detailsModal" class="details-modal" aria-labelledby="detailsTitle">
     <h3 id="detailsTitle">تفاصيل الحساب</h3>
     <div id="detailsBody" class="table-wrap"></div>
     <div class="actions"><button type="button" class="btn btn-outline" data-close>إغلاق</button></div>
   </dialog>
 
-  <div class="loading" id="loading"><div class="spinner"></div><p id="loadingText">جاري تحميل البيانات من السيرفر...</p></div>
+  <!-- شاشة العمليات (تمنع الضغط المتكرر) -->
+  <div class="loading" id="loading" hidden><div class="spinner"></div><p id="loadingText">جاري الحفظ...</p></div>
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
-  <!-- Firebase (Firestore) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="firebase-config.js"></script>
-
-  <!-- مكتبة SheetJS من CDN (مطلوبة للاستيراد والتصدير فقط) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="script.js"></script>
 </body>

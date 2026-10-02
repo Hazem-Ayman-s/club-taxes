@@ -136,3 +136,70 @@ dialog .actions { justify-content: flex-start; margin-top: 12px; }
   .toolbar input[type="search"] { max-width: none; flex-basis: 100%; }
   .toasts { left: 8px; right: 8px; }
 }
+
+/* ===== إضافات: تسجيل الدخول والدفع والتحميل الأولي ===== */
+.splash {
+  position: fixed; inset: 0; z-index: 100; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--navy);
+}
+.splash[hidden] { display: none; }
+[hidden] { display: none !important; }
+.app-header .container { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.header-user { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: #c5d3e3; font-size: .85rem; }
+.btn-ghost { background: transparent; color: #fff; border-color: rgba(255, 255, 255, .45); }
+.btn-ghost:hover { background: rgba(255, 255, 255, .12); }
+.btn-block { width: 100%; }
+.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.login-card { width: 100%; max-width: 420px; margin: 0; }
+.login-card h1 { margin: 0; font-size: 1.4rem; color: var(--navy); text-align: center; }
+.login-sub { text-align: center; color: var(--muted); margin: 4px 0 18px; }
+#emailInput { text-align: right; }
+input[type="email"] {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font: inherit; background: #fff; color: var(--text); min-height: 44px;
+}
+input[type="email"]:focus-visible, select:focus-visible { outline: 3px solid rgba(31, 95, 153, .35); border-color: var(--blue); }
+.notice { margin: 14px 0 0; padding: 10px 12px; border-radius: 8px; background: #e6f4ec; color: #17603f; border: 1px solid #b9e0c9; }
+.notice.error { background: #fdeaea; color: #8f2020; border-color: #f2c0c0; }
+.notice.info { background: var(--blue-light); color: var(--navy); border-color: #c3d6ea; }
+select {
+  font: inherit; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: #fff; color: var(--text); cursor: pointer;
+}
+.stat-ok { border-right-color: var(--ok); }
+.stat-warn { border-right-color: var(--warn); }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .82rem; font-weight: 500; }
+.badge-paid { background: #e6f4ec; color: #17603f; border: 1px solid #b9e0c9; }
+.badge-unpaid { background: #fff4e0; color: #8a5a10; border: 1px solid #f0d9a8; }
+.status-note { display: block; color: var(--muted); font-size: .78rem; margin-top: 2px; }
+.result-sum { display: block; color: var(--muted); margin-top: 2px; }
+@media (max-width: 560px) {
+  .toolbar select { flex: 1 1 100%; }
+  .header-user { width: 100%; justify-content: space-between; }
+}
+
+input[type="password"] {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font: inherit; background: #fff; color: var(--text); min-height: 44px; text-align: right;
+}
+input[type="password"]:focus-visible { outline: 3px solid rgba(31, 95, 153, .35); border-color: var(--blue); }
+
+#receiptInput { text-align: right; }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+td .btn-sm { margin-inline-start: 6px; }
+
+/* ===== إصلاح عرض نافذة وجدول تفاصيل العضوية =====
+   السبب: كل النوافذ عرضها 480px (قاعدة dialog) بينما أي table له min-width: 560px،
+   فيصبح عرض الجدول أكبر من مساحة النافذة (436px بعد الـ padding) فيظهر Scroll أفقي. */
+.details-modal { width: min(95vw, 900px); max-width: 900px; max-height: 90vh; }
+.details-modal .table-wrap { width: 100%; }
+.details-table { width: 100%; min-width: 0; table-layout: fixed; }
+.details-table th, .details-table td {
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word; text-align: right;
+}
+/* على الشاشات الصغيرة جدًا فقط: حد أدنى للجدول مع Scroll داخل الجدول وحده */
+@media (max-width: 560px) {
+  .details-modal { padding: 16px; }
+  .details-table { min-width: 440px; }
+  .details-table th, .details-table td { padding: 8px 6px; font-size: .88rem; }
+}

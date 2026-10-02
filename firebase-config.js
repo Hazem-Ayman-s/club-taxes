@@ -1,4 +1,4 @@
-/* إعداد Firebase (نسخة compat تعمل كسكربت عادي بدون سيرفر محلي) */
+/* إعداد Firebase (نسخة compat) */
 const firebaseConfig = {
   apiKey: "AIzaSyAQluKYTC09w64i2Ba7IG31ErQ2Ygw7EPE",
   authDomain: "club-taxes.firebaseapp.com",
@@ -10,3 +10,4 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const auth = firebase.auth();
