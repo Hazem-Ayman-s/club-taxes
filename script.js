@@ -9,14 +9,13 @@ const MAX_YEARS = 1000;
 const MAX_NAME = 100;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;   // أقصى حجم لملف Excel
 const MAX_ROWS = 2000;                    // أقصى عدد صفوف في الاستيراد
-const BATCH_SIZE = 20;                    // حد Firestore لعمليات access في الـ batch عند استخدام get() في القواعد
+const BATCH_SIZE = 400;                   // حد Firestore: 500 عملية لكل batch
 const RECEIPT_RE = /^[\p{L}\p{N}][\p{L}\p{N}\-_/. ]*$/u;   // حروف/أرقام/ - _ / . ومسافات داخلية
 
 /*
  * ملاحظة أمنية: الحسابات هنا (calculateFine/STAMP_VALUE) مجرد راحة للمستخدم.
  * الحماية الحقيقية للمبالغ في firestore.rules الذي يعيد حساب amount/stamp/totalAmount
  * ويرفض أي كتابة لا تطابقها. عند تغيير الأسعار عدّل الاثنين معًا.
- * كذلك الصلاحيات (مدير/موظف) تُفرض في القواعد، وإخفاء الأزرار هنا للراحة فقط.
  */
 
 function getPenaltyRate(yearNumber) {
@@ -50,7 +49,6 @@ let searchTerm = "";
 let statusFilter = "all";
 let editingId = null, deletingId = null, unpayingId = null;
 let busy = false;
-let isAdmin = false;      // للعرض فقط؛ الصلاحية الفعلية تُفرض في Firestore Rules
 let authSeq = 0;          // لتجاهل نتائج غير محدّثة عند تغيّر حالة الدخول بسرعة
 let unsubscribe = null;
 
@@ -83,7 +81,7 @@ function showView(name) {
 /** تحويل أخطاء Firebase إلى رسائل عربية قصيرة */
 function errMsg(err, fallback) {
   const c = (err && err.code) || "";
-  if (c === "permission-denied") return "ليس لديك صلاحية لتنفيذ هذه العملية.";
+  if (c === "permission-denied") return "تم رفض العملية من قاعدة البيانات، تأكد من صحة البيانات وأعد المحاولة.";
   if (c === "unavailable" || c === "timeout" || c === "auth/network-request-failed") return "تعذر الاتصال بقاعدة البيانات.";
   if (c === "parse") return "حدث خطأ أثناء قراءة الملف";
   if (c === "toomany") return "عدد الصفوف كبير جدًا (الحد الأقصى " + MAX_ROWS + " صف).";
@@ -251,7 +249,7 @@ function resetSession() {
   $("result").hidden = true;
   $("searchInput").value = ""; searchTerm = "";
   $("statusFilter").value = "all"; statusFilter = "all";
-  $("userEmail").textContent = ""; $("userRole").textContent = "";
+  $("userEmail").textContent = "";
   render();
 }
 
@@ -259,39 +257,16 @@ async function handleAuthState(user) {
   const seq = ++authSeq;
   stopListening();
   if (!user) {
-    records = []; isAdmin = false;
+    records = [];
     $("passwordInput").value = "";
     resetSession();
     showView("loginView");
     return;
   }
-  showView("splash");                       // لا تظهر لوحة التحكم قبل التحقق من الصلاحية وتحميل البيانات
+  // مسجل الدخول عبر Firebase Authentication = يدخل مباشرة؛ لا يوجد أي فحص صلاحيات إضافي
+  showView("splash");                       // تبقى ظاهرة حتى تصل البيانات
+  $("userEmail").textContent = user.email || "";
   try {
-    // مستند الصلاحية: allowed_users/{email}؛ اسم المستند = البريد بحروف صغيرة وبدون مسافات
-    const email = (user.email || "").trim().toLowerCase();
-    let roleDoc;
-    try {
-      roleDoc = await db.collection("allowed_users").doc(email).get();
-    } catch (e) {
-      if (e && e.code === "permission-denied") {
-        console.error("[auth] القواعد رفضت قراءة allowed_users/" + email + " — راجع القواعد وتأكد أن Rules منشورة.", e);
-        throw { code: "permission-denied" };
-      }
-      throw e;                                   // أخطاء الشبكة تُعرض كخطأ اتصال لا كعدم صلاحية
-    }
-    if (seq !== authSeq) return;
-    if (!roleDoc.exists) {
-      console.error("[auth] لا يوجد مستند allowed_users/" + email + " (اسم المستند يجب أن يطابق البريد تمامًا بحروف صغيرة).");
-      throw { code: "permission-denied" };
-    }
-    const role = roleDoc.data().role;
-    if (role !== "admin" && role !== "staff") {
-      console.error('[auth] قيمة role غير صالحة: ' + JSON.stringify(role) + ' — يجب أن تكون "admin" أو "staff" نصًا وبحروف صغيرة.');
-      throw { code: "permission-denied" };
-    }
-    isAdmin = role === "admin";
-    $("userEmail").textContent = user.email || "";
-    $("userRole").textContent = isAdmin ? "مدير" : "موظف";
     await startListening();
     if (seq !== authSeq) return;
     showView("app");
@@ -300,7 +275,7 @@ async function handleAuthState(user) {
     console.error(err);
     stopListening();
     $("errorText").textContent = err && err.code === "permission-denied"
-      ? "هذا الحساب غير مصرّح له بالدخول إلى النظام."
+      ? "تعذر الوصول إلى البيانات. تأكد من نشر قواعد Firestore ثم أعد المحاولة."
       : "تعذر الاتصال بقاعدة البيانات.";
     showView("errorView");
   }
@@ -406,7 +381,7 @@ function renderTable(list) {
       const sp = document.createElement("span");
       sp.dir = "ltr"; sp.textContent = r.receiptNumber || "—";
       rc.appendChild(sp);
-      if (isAdmin) rc.appendChild(makeBtn("editReceipt", "تعديل رقم الإيصال", "btn-outline", r.name));
+      rc.appendChild(makeBtn("editReceipt", "تعديل رقم الإيصال", "btn-outline", r.name));
     } else rc.textContent = "—";
     tr.appendChild(rc);
 
@@ -415,10 +390,10 @@ function renderTable(list) {
     const td = document.createElement("td");
     const box = document.createElement("div");
     box.className = "row-actions";
-    if (isAdmin) box.appendChild(paid ? makeBtn("unpay", "إلغاء الدفع", "btn-outline", r.name) : makeBtn("pay", "تم الدفع", "btn-success", r.name));
+    box.appendChild(paid ? makeBtn("unpay", "إلغاء الدفع", "btn-outline", r.name) : makeBtn("pay", "تم الدفع", "btn-success", r.name));
     box.appendChild(makeBtn("details", "التفاصيل", "btn-outline", r.name));
-    if (isAdmin || !paid) box.appendChild(makeBtn("edit", "تعديل", "btn-outline", r.name));
-    if (isAdmin) box.appendChild(makeBtn("delete", "حذف", "btn-danger", r.name));
+    box.appendChild(makeBtn("edit", "تعديل", "btn-outline", r.name));
+    box.appendChild(makeBtn("delete", "حذف", "btn-danger", r.name));
     td.appendChild(box); tr.appendChild(td);
     frag.appendChild(tr);
   });
@@ -559,9 +534,6 @@ async function handleTableClick(e) {
   const id = btn.closest("tr").dataset.id;
   const rec = records.find((r) => r.id === id);
   if (!rec) return;
-  if (["pay", "unpay", "editReceipt", "delete"].includes(btn.dataset.action) && !isAdmin) {
-    return toast("هذه العملية متاحة للمدير فقط.", "error");
-  }
   switch (btn.dataset.action) {
     case "edit": openEdit(rec); break;
     case "delete": deletingId = id; $("deleteModal").showModal(); break;
@@ -636,11 +608,11 @@ function parseWorkbook(buffer) {
     if (row.every((c) => String(c).trim() === "")) continue;
     const v = validate(row[nameCol], row[yearsCol]);
     if (v.errors) { bad++; continue; }
-    // الحالة "مدفوع" تُقبل فقط للمدير ومع رقم إيصال صالح؛ غير ذلك تُستورد كغير مدفوع
+    // الحالة "مدفوع" تُقبل فقط مع رقم إيصال صالح؛ غير ذلك تُستورد كغير مدفوع
     const rc = receiptCol >= 0 ? validateReceipt(row[receiptCol]) : { error: "none" };
     const isPaid = statusCol >= 0 && ["تم الدفع", "paid"].includes(String(row[statusCol]).trim());
-    if (isPaid && !(isAdmin && rc.value)) noReceipt++;
-    docs.push(buildDoc(v.name, v.years, isPaid && isAdmin && rc.value ? rc.value : null));
+    if (isPaid && !rc.value) noReceipt++;
+    docs.push(buildDoc(v.name, v.years, isPaid && rc.value ? rc.value : null));
   }
   return { docs, bad, noReceipt };
 }
@@ -660,7 +632,7 @@ async function handleFileChosen(e) {
     }
     await saveMany(docs);
     toast("تم استيراد " + docs.length + " سجلًا بنجاح" + (bad ? " (" + bad + " صفوف بها أخطاء)" : "") +
-      (noReceipt ? " — " + noReceipt + " صفوف مدفوعة بدون رقم إيصال صالح (أو بدون صلاحية) استُوردت كغير مدفوعة" : ""), bad || noReceipt ? "warn" : "ok");
+      (noReceipt ? " — " + noReceipt + " صفوف مدفوعة بدون رقم إيصال صالح استُوردت كغير مدفوعة" : ""), bad || noReceipt ? "warn" : "ok");
   }, "تعذر حفظ البيانات، حاول مرة أخرى.", 180000);
 }
 

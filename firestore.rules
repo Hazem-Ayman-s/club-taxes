@@ -2,19 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ---------- الهوية والصلاحية ----------
-    // اسم مستند allowed_users = البريد الإلكتروني بحروف صغيرة (يطابق ما يكتبه التطبيق).
-    // lower() تجعل المقارنة غير حساسة لحالة الأحرف في بريد الـ token.
-    function emailKey() {
-      return request.auth.token.email.lower();
-    }
-
-    // يعيد 'admin' أو 'staff'، وأي قيمة أخرى (أو غياب الحقل) تُعامل كـ 'none' = لا وصول.
-    // إذا لم يكن المستخدم مسجلًا أو لم يوجد المستند يفشل التقييم (get على مستند غير موجود)
-    // والنتيجة رفض الطلب، أي أن الدالة آمنة (fail-closed).
-    // استدعاء get() واحد فقط لكل عملية (حد 20 access call لكل batch).
-    function role() {
-      return get(/databases/$(database)/documents/allowed_users/$(emailKey())).data.get('role', 'none');
+    // الشرط الأساسي: مستخدم مسجل الدخول عبر Firebase Authentication.
+    // لا توجد أدوار ولا allowed_users ولا get() لأي مستند آخر.
+    function signedIn() {
+      return request.auth != null;
     }
 
     // ---------- الحساب (يجب أن يطابق script.js) ----------
@@ -44,46 +35,32 @@ service cloud.firestore {
     }
 
     function canCreate() {
-      let r = role();
       let d = request.resource.data;
-      return request.auth != null
-        && r in ['admin', 'staff']
+      return signedIn()
         && validMember(d)
         && d.createdAt == request.time
-        // الموظف: سجل غير مدفوع فقط. المدير فقط يمكنه إنشاء سجل مدفوع (استيراد)
-        && (d.paymentStatus == 'unpaid' || (r == 'admin' && d.paidAt == request.time));
+        && (d.paymentStatus == 'unpaid' || d.paidAt == request.time);
     }
 
     function canUpdate() {
-      let r = role();
       let a = resource.data;
       let b = request.resource.data;
-      return request.auth != null
-        && r in ['admin', 'staff']
+      return signedIn()
         && validMember(b)
         && b.createdAt == a.createdAt
-        && (r == 'admin'
-              // المدير: دفع / إلغاء دفع / تعديل رقم الإيصال / تعديل البيانات
-              // paidAt يُضبط من السيرفر عند الانتقال إلى مدفوع، ويبقى ثابتًا عند تعديل الإيصال فقط
-              ? (a.paymentStatus == b.paymentStatus
-                   ? (b.paymentStatus == 'unpaid' || b.paidAt == a.paidAt)
-                   : (b.paymentStatus == 'unpaid' || b.paidAt == request.time))
-              // الموظف: تعديل الاسم والسنوات (والمبالغ المشتقة) لسجل غير مدفوع فقط
-              : (a.paymentStatus == 'unpaid' && b.paymentStatus == 'unpaid'
-                   && b.diff(a).affectedKeys().hasOnly(['name', 'years', 'amount', 'stamp', 'totalAmount', 'updatedAt'])));
+        // الانتقال إلى مدفوع: paidAt من السيرفر؛ البقاء مدفوعًا (تعديل الإيصال): paidAt ثابت
+        && (a.paymentStatus == b.paymentStatus
+              ? (b.paymentStatus == 'unpaid' || b.paidAt == a.paidAt)
+              : (b.paymentStatus == 'unpaid' || b.paidAt == request.time));
     }
 
     match /membership_fines/{id} {
-      allow read: if request.auth != null && role() in ['admin', 'staff'];
+      allow read: if signedIn();
       allow create: if canCreate();
       allow update: if canUpdate();
-      allow delete: if request.auth != null && role() == 'admin';
+      allow delete: if signedIn();
     }
 
-    // يقرأ المستخدم مستند صلاحيته هو فقط، ولا أحد يكتب فيه من التطبيق (الإدارة من Console)
-    match /allowed_users/{email} {
-      allow get: if request.auth != null && request.auth.token.email.lower() == email;
-      allow list, write: if false;
-    }
+    // أي مسار آخر (بما فيه allowed_users) مرفوض افتراضيًا ولا يستخدمه التطبيق
   }
 }
