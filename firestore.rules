@@ -2,15 +2,77 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // مسموح فقط للمستخدمين الموثّقين الذين أُضيف بريدهم يدويًا في collection اسمه allowed_users
-    // (اسم الـ document = البريد الإلكتروني بحروف صغيرة)
-    function isStaff() {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/allowed_users/$(request.auth.token.email));
+    // ---------- الصلاحيات ----------
+    // allowed_users/{email} : مستند لكل مستخدم مصرّح له، الحقل role = "admin" أو "staff".
+    // اسم المستند = البريد الإلكتروني بحروف صغيرة. بدون مستند = لا وصول.
+    // كل عملية تستخدم get() مرة واحدة فقط (حد Firestore: 20 access call لكل batch).
+    function role() {
+      return get(/databases/$(database)/documents/allowed_users/$(request.auth.token.email)).data.get('role', 'staff');
+    }
+
+    // ---------- الحساب (يجب أن يطابق script.js) ----------
+    // الغرامات: 10، 25، 45، 75، 115 للسنوات 1..5ثم +40 لكل سنة إضافية
+    function fine(y) {
+      return y <= 5 ? [0, 10, 25, 45, 75, 115][y] : 115 + 40 * (y - 5);
+    }
+
+    // ---------- التحقق من شكل المستند وقيمه ----------
+    function validMember(d) {
+      return d.keys().hasOnly(['name', 'years', 'amount', 'stamp', 'totalAmount', 'paymentStatus',
+                               'receiptNumber', 'paidAt', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['name', 'years', 'amount', 'stamp', 'totalAmount', 'paymentStatus', 'createdAt', 'updatedAt'])
+        && d.name is string && d.name.size() >= 1 && d.name.size() <= 100
+        && d.years is int && d.years >= 1 && d.years <= 1000
+        && d.amount == fine(d.years)
+        && d.stamp == 15
+        && d.totalAmount == d.amount + d.stamp
+        && d.paymentStatus in ['paid', 'unpaid']
+        && (d.paymentStatus == 'unpaid'
+              ? (d.get('receiptNumber', null) == null && d.get('paidAt', null) == null)
+              : (d.receiptNumber is string && d.receiptNumber.size() >= 1 && d.receiptNumber.size() <= 50
+                 && d.paidAt is timestamp))
+        && d.createdAt is timestamp
+        && d.updatedAt == request.time;
+    }
+
+    function canCreate() {
+      let r = role();
+      let d = request.resource.data;
+      return r in ['admin', 'staff']
+        && validMember(d)
+        && d.createdAt == request.time
+        // الموظف ينشئ سجلات غير مدفوعة فقط؛ المدير فقط يمكنه إنشاء سجل مدفوع (استيراد)
+        && (d.paymentStatus == 'unpaid' || (r == 'admin' && d.paidAt == request.time));
+    }
+
+    function canUpdate() {
+      let r = role();
+      let a = resource.data;
+      let b = request.resource.data;
+      return r in ['admin', 'staff']
+        && validMember(b)
+        && b.createdAt == a.createdAt
+        && (r == 'admin'
+              // المدير: تغيير الدفع مسموح، مع ضبط paidAt من السيرفر عند الانتقال إلى مدفوع
+              ? (a.paymentStatus == b.paymentStatus
+                   ? (b.paymentStatus == 'unpaid' || b.paidAt == a.paidAt)
+                   : (b.paymentStatus == 'unpaid' || b.paidAt == request.time))
+              // الموظف: تعديل الاسم/السنوات لسجل غير مدفوع فقط، ولا يلمس حقول الدفع
+              : (a.paymentStatus == 'unpaid' && b.paymentStatus == 'unpaid'
+                   && b.diff(a).affectedKeys().hasOnly(['name', 'years', 'amount', 'stamp', 'totalAmount', 'updatedAt'])));
     }
 
     match /membership_fines/{id} {
-      allow read, write: if isStaff();
+      allow read: if role() in ['admin', 'staff'];
+      allow create: if canCreate();
+      allow update: if canUpdate();
+      allow delete: if role() == 'admin';
+    }
+
+    // يقرأ المستخدم مستند صلاحيته فقط؛ الكتابة من Firebase Console فقط
+    match /allowed_users/{email} {
+      allow get: if request.auth != null && request.auth.token.email == email;
+      allow list, write: if false;
     }
   }
 }

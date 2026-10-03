@@ -6,6 +6,18 @@ const PENALTY_RATES = [0, 0.5, 1, 2, 3];  // نسبة الغرامة للسنو�
 const STAMP_VALUE = 15;                   // الطوابع: تُضاف مرة واحدة لكل عملية
 const COLLECTION = "membership_fines";
 const MAX_YEARS = 1000;
+const MAX_NAME = 100;
+const MAX_FILE_BYTES = 5 * 1024 * 1024;   // أقصى حجم لملف Excel
+const MAX_ROWS = 2000;                    // أقصى عدد صفوف في الاستيراد
+const BATCH_SIZE = 20;                    // حد Firestore لعمليات access في الـ batch عند استخدام get() في القواعد
+const RECEIPT_RE = /^[\p{L}\p{N}][\p{L}\p{N}\-_/. ]*$/u;   // حروف/أرقام/ - _ / . ومسافات داخلية
+
+/*
+ * ملاحظة أمنية: الحسابات هنا (calculateFine/STAMP_VALUE) مجرد راحة للمستخدم.
+ * الحماية الحقيقية للمبالغ في firestore.rules الذي يعيد حساب amount/stamp/totalAmount
+ * ويرفض أي كتابة لا تطابقها. عند تغيير الأسعار عدّل الاثنين معًا.
+ * كذلك الصلاحيات (مدير/موظف) تُفرض في القواعد، وإخفاء الأزرار هنا للراحة فقط.
+ */
 
 function getPenaltyRate(yearNumber) {
   return PENALTY_RATES[Math.min(yearNumber, PENALTY_RATES.length) - 1];
@@ -38,6 +50,8 @@ let searchTerm = "";
 let statusFilter = "all";
 let editingId = null, deletingId = null, unpayingId = null;
 let busy = false;
+let isAdmin = false;      // للعرض فقط؛ الصلاحية الفعلية تُفرض في Firestore Rules
+let authSeq = 0;          // لتجاهل نتائج غير محدّثة عند تغيّر حالة الدخول بسرعة
 let unsubscribe = null;
 
 const $ = (id) => document.getElementById(id);
@@ -72,6 +86,7 @@ function errMsg(err, fallback) {
   if (c === "permission-denied") return "ليس لديك صلاحية لتنفيذ هذه العملية.";
   if (c === "unavailable" || c === "timeout" || c === "auth/network-request-failed") return "تعذر الاتصال بقاعدة البيانات.";
   if (c === "parse") return "حدث خطأ أثناء قراءة الملف";
+  if (c === "toomany") return "عدد الصفوف كبير جدًا (الحد الأقصى " + MAX_ROWS + " صف).";
   return fallback;
 }
 
@@ -95,6 +110,7 @@ function withTimeout(promise, ms) {
 /** تشغيل عملية مع شاشة تحميل ومنع الضغط المتكرر؛ تعيد true عند النجاح */
 async function runOp(text, fn, fallback, timeout = 20000) {
   if (busy) return false;
+  if (!auth.currentUser) { toast("انتهت الجلسة، يرجى تسجيل الدخول من جديد.", "error"); return false; }
   busy = true; showLoading(text);
   try { await withTimeout(Promise.resolve().then(fn), timeout); return true; }
   catch (err) { console.error(err); toast(errMsg(err, fallback), "error"); return false; }
@@ -103,15 +119,24 @@ async function runOp(text, fn, fallback, timeout = 20000) {
 
 function validate(nameRaw, yearsRaw) {
   const errors = {};
-  const name = String(nameRaw ?? "").trim().replace(/\s+/g, " ");
+  const name = String(nameRaw ?? "").replace(/[\u0000-\u001F\u007F]/g, " ").trim().replace(/\s+/g, " ");
   const yStr = String(yearsRaw ?? "").trim();
   if (!name) errors.name = "الاسم مطلوب";
-  else if (name.length > 100) errors.name = "الاسم طويل جدًا";
+  else if (name.length > MAX_NAME) errors.name = "الاسم طويل جدًا";
   if (!yStr) errors.years = "عدد السنوات مطلوب";
   else if (!/^-?\d+$/.test(yStr)) errors.years = "يجب إدخال رقم صحيح";
   else if (Number(yStr) <= 0) errors.years = "يجب أن يكون عدد السنوات أكبر من 0";
   else if (Number(yStr) > MAX_YEARS) errors.years = "عدد السنوات كبير جدًا";
   return Object.keys(errors).length ? { errors } : { name, years: Number(yStr) };
+}
+
+/** التحقق من رقم الإيصال؛ يعيد {value} نصًا (للحفاظ على الأصفار) أو {error} */
+function validateReceipt(raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return { error: "يرجى إدخال رقم الإيصال" };
+  if (value.length > 50) return { error: "رقم الإيصال طويل جدًا" };
+  if (!RECEIPT_RE.test(value)) return { error: "رقم الإيصال يقبل الحروف والأرقام والرموز - _ / . فقط" };
+  return { value };
 }
 
 function showErrors(errors, map) {
@@ -176,9 +201,9 @@ function startListening() {
 function stopListening() { if (unsubscribe) { unsubscribe(); unsubscribe = null; } }
 
 async function saveMany(list) {
-  for (let i = 0; i < list.length; i += 400) {
+  for (let i = 0; i < list.length; i += BATCH_SIZE) {
     const batch = db.batch();
-    list.slice(i, i + 400).forEach((doc) => batch.set(col().doc(), doc));
+    list.slice(i, i + BATCH_SIZE).forEach((doc) => batch.set(col().doc(), doc));
     await batch.commit();
   }
 }
@@ -219,20 +244,42 @@ async function handleLogin(e) {
   }
 }
 
+/** تفريغ كل بيانات الجلسة من الذاكرة والـ DOM عند الخروج */
+function resetSession() {
+  document.querySelectorAll("dialog[open]").forEach((d) => d.close());
+  $("addForm").reset();
+  $("result").hidden = true;
+  $("searchInput").value = ""; searchTerm = "";
+  $("statusFilter").value = "all"; statusFilter = "all";
+  $("userEmail").textContent = ""; $("userRole").textContent = "";
+  render();
+}
+
 async function handleAuthState(user) {
+  const seq = ++authSeq;
   stopListening();
   if (!user) {
-    records = [];
+    records = []; isAdmin = false;
     $("passwordInput").value = "";
+    resetSession();
     showView("loginView");
     return;
   }
-  showView("splash");                     // تبقى ظاهرة حتى تصل البيانات
-  $("userEmail").textContent = user.email || "";
+  showView("splash");                       // لا تظهر لوحة التحكم قبل التحقق من الصلاحية وتحميل البيانات
   try {
+    // مستند الصلاحية: allowed_users/{email} (القواعد تسمح للمستخدم بقراءة مستنده فقط)
+    const roleDoc = await db.collection("allowed_users").doc((user.email || "").toLowerCase()).get();
+    if (seq !== authSeq) return;
+    if (!roleDoc.exists) throw { code: "permission-denied" };
+    isAdmin = roleDoc.data().role === "admin";
+    $("userEmail").textContent = user.email || "";
+    $("userRole").textContent = isAdmin ? "مدير" : "موظف";
     await startListening();
+    if (seq !== authSeq) return;
     showView("app");
   } catch (err) {
+    if (seq !== authSeq) return;
+    console.error(err);
     stopListening();
     $("errorText").textContent = err && err.code === "permission-denied"
       ? "هذا الحساب غير مصرّح له بالدخول إلى النظام."
@@ -341,7 +388,7 @@ function renderTable(list) {
       const sp = document.createElement("span");
       sp.dir = "ltr"; sp.textContent = r.receiptNumber || "—";
       rc.appendChild(sp);
-      rc.appendChild(makeBtn("editReceipt", "تعديل رقم الإيصال", "btn-outline", r.name));
+      if (isAdmin) rc.appendChild(makeBtn("editReceipt", "تعديل رقم الإيصال", "btn-outline", r.name));
     } else rc.textContent = "—";
     tr.appendChild(rc);
 
@@ -350,10 +397,10 @@ function renderTable(list) {
     const td = document.createElement("td");
     const box = document.createElement("div");
     box.className = "row-actions";
-    box.appendChild(paid ? makeBtn("unpay", "إلغاء الدفع", "btn-outline", r.name) : makeBtn("pay", "تم الدفع", "btn-success", r.name));
+    if (isAdmin) box.appendChild(paid ? makeBtn("unpay", "إلغاء الدفع", "btn-outline", r.name) : makeBtn("pay", "تم الدفع", "btn-success", r.name));
     box.appendChild(makeBtn("details", "التفاصيل", "btn-outline", r.name));
-    box.appendChild(makeBtn("edit", "تعديل", "btn-outline", r.name));
-    box.appendChild(makeBtn("delete", "حذف", "btn-danger", r.name));
+    if (isAdmin || !paid) box.appendChild(makeBtn("edit", "تعديل", "btn-outline", r.name));
+    if (isAdmin) box.appendChild(makeBtn("delete", "حذف", "btn-danger", r.name));
     td.appendChild(box); tr.appendChild(td);
     frag.appendChild(tr);
   });
@@ -458,10 +505,9 @@ function openReceipt(mode, rec) {
 async function handleReceiptSubmit(e) {
   e.preventDefault();
   if (busy) return;
-  const value = String($("receiptInput").value ?? "").trim();   // نص دائمًا للحفاظ على الأصفار
-  let error = "";
-  if (!value) error = "يرجى إدخال رقم الإيصال";
-  else if (value.length > 50) error = "رقم الإيصال طويل جدًا";
+  const rv = validateReceipt($("receiptInput").value);
+  const value = rv.value;
+  const error = rv.error || "";
   $("receiptError").textContent = error;
   $("receiptInput").classList.toggle("invalid", !!error);
   if (error) return;
@@ -495,6 +541,9 @@ async function handleTableClick(e) {
   const id = btn.closest("tr").dataset.id;
   const rec = records.find((r) => r.id === id);
   if (!rec) return;
+  if (["pay", "unpay", "editReceipt", "delete"].includes(btn.dataset.action) && !isAdmin) {
+    return toast("هذه العملية متاحة للمدير فقط.", "error");
+  }
   switch (btn.dataset.action) {
     case "edit": openEdit(rec); break;
     case "delete": deletingId = id; $("deleteModal").showModal(); break;
@@ -547,11 +596,13 @@ function handleExport() {
 function parseWorkbook(buffer) {
   let rows;
   try {
-    const wb = XLSX.read(buffer, { type: "array" });
+    // cellFormula/cellHTML معطّلان، وsheetRows يحدّ من عدد الصفوف المقروءة
+    const wb = XLSX.read(buffer, { type: "array", cellFormula: false, cellHTML: false, sheetRows: MAX_ROWS + 2 });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
   } catch (e) { throw { code: "parse" }; }
   if (!rows.length) throw { code: "parse" };
+  if (rows.length > MAX_ROWS + 1) throw { code: "toomany" };
 
   const header = rows[0].map((c) => String(c).trim());
   let nameCol = header.findIndex((h) => h === "الاسم");
@@ -567,11 +618,11 @@ function parseWorkbook(buffer) {
     if (row.every((c) => String(c).trim() === "")) continue;
     const v = validate(row[nameCol], row[yearsCol]);
     if (v.errors) { bad++; continue; }
-    // الحالة "مدفوع" تُقبل فقط مع رقم إيصال صالح؛ غير ذلك تُستورد كغير مدفوع
-    const receipt = receiptCol >= 0 ? String(row[receiptCol] ?? "").trim().slice(0, 50) : "";
+    // الحالة "مدفوع" تُقبل فقط للمدير ومع رقم إيصال صالح؛ غير ذلك تُستورد كغير مدفوع
+    const rc = receiptCol >= 0 ? validateReceipt(row[receiptCol]) : { error: "none" };
     const isPaid = statusCol >= 0 && ["تم الدفع", "paid"].includes(String(row[statusCol]).trim());
-    if (isPaid && !receipt) noReceipt++;
-    docs.push(buildDoc(v.name, v.years, isPaid && receipt ? receipt : null));
+    if (isPaid && !(isAdmin && rc.value)) noReceipt++;
+    docs.push(buildDoc(v.name, v.years, isPaid && isAdmin && rc.value ? rc.value : null));
   }
   return { docs, bad, noReceipt };
 }
@@ -580,6 +631,8 @@ async function handleFileChosen(e) {
   const file = e.target.files[0];
   e.target.value = "";
   if (!file || !xlsxReady()) return;
+  if (!/\.(xlsx|xls|csv)$/i.test(file.name)) return toast("نوع الملف غير مدعوم، اختر ملف Excel أو CSV.", "error");
+  if (file.size > MAX_FILE_BYTES) return toast("حجم الملف كبير جدًا (الحد الأقصى 5 ميجابايت).", "error");
   await runOp("جاري استيراد البيانات...", async () => {
     await new Promise((r) => setTimeout(r, 30));           // السماح للشاشة بالظهور
     const { docs, bad, noReceipt } = parseWorkbook(await file.arrayBuffer());
@@ -589,7 +642,7 @@ async function handleFileChosen(e) {
     }
     await saveMany(docs);
     toast("تم استيراد " + docs.length + " سجلًا بنجاح" + (bad ? " (" + bad + " صفوف بها أخطاء)" : "") +
-      (noReceipt ? " — " + noReceipt + " صفوف مدفوعة بدون رقم إيصال استُوردت كغير مدفوعة" : ""), bad || noReceipt ? "warn" : "ok");
+      (noReceipt ? " — " + noReceipt + " صفوف مدفوعة بدون رقم إيصال صالح (أو بدون صلاحية) استُوردت كغير مدفوعة" : ""), bad || noReceipt ? "warn" : "ok");
   }, "تعذر حفظ البيانات، حاول مرة أخرى.", 180000);
 }
 

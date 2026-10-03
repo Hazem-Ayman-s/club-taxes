@@ -56,6 +56,7 @@
         </div>
         <div class="header-user">
           <span id="userEmail" dir="ltr"></span>
+          <span class="badge badge-unpaid" id="userRole"></span>
           <button type="button" class="btn btn-ghost btn-sm" id="logoutBtn">تسجيل الخروج</button>
         </div>
       </div>
@@ -79,7 +80,7 @@
           <div class="form-grid">
             <div class="field">
               <label for="nameInput">اسم الشخص</label>
-              <input type="text" id="nameInput" placeholder="أدخل اسم الشخص" autocomplete="off">
+              <input type="text" id="nameInput" placeholder="أدخل اسم الشخص" autocomplete="off" maxlength="100">
               <small class="error" id="nameError" role="alert"></small>
             </div>
             <div class="field">
@@ -146,7 +147,7 @@
       <h3 id="editTitle">تعديل العضوية</h3>
       <div class="field">
         <label for="editName">اسم الشخص</label>
-        <input type="text" id="editName" autocomplete="off">
+        <input type="text" id="editName" autocomplete="off" maxlength="100">
         <small class="error" id="editNameError" role="alert"></small>
       </div>
       <div class="field">
@@ -211,7 +212,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="firebase-config.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="script.js"></script>
 </body>
 </html>

@@ -1,0 +1,9 @@
+{
+  "name": "membership-fines",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "dev": "node scripts/build.js && npx serve dist"
+  }
+}
