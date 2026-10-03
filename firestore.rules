@@ -2,21 +2,28 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ---------- الصلاحيات ----------
-    // allowed_users/{email} : مستند لكل مستخدم مصرّح له، الحقل role = "admin" أو "staff".
-    // اسم المستند = البريد الإلكتروني بحروف صغيرة. بدون مستند = لا وصول.
-    // كل عملية تستخدم get() مرة واحدة فقط (حد Firestore: 20 access call لكل batch).
+    // ---------- الهوية والصلاحية ----------
+    // اسم مستند allowed_users = البريد الإلكتروني بحروف صغيرة (يطابق ما يكتبه التطبيق).
+    // lower() تجعل المقارنة غير حساسة لحالة الأحرف في بريد الـ token.
+    function emailKey() {
+      return request.auth.token.email.lower();
+    }
+
+    // يعيد 'admin' أو 'staff'، وأي قيمة أخرى (أو غياب الحقل) تُعامل كـ 'none' = لا وصول.
+    // إذا لم يكن المستخدم مسجلًا أو لم يوجد المستند يفشل التقييم (get على مستند غير موجود)
+    // والنتيجة رفض الطلب، أي أن الدالة آمنة (fail-closed).
+    // استدعاء get() واحد فقط لكل عملية (حد 20 access call لكل batch).
     function role() {
-      return get(/databases/$(database)/documents/allowed_users/$(request.auth.token.email)).data.get('role', 'staff');
+      return get(/databases/$(database)/documents/allowed_users/$(emailKey())).data.get('role', 'none');
     }
 
     // ---------- الحساب (يجب أن يطابق script.js) ----------
-    // الغرامات: 10، 25، 45، 75، 115 للسنوات 1..5ثم +40 لكل سنة إضافية
+    // 1:10  2:25  3:45  4:75  5:115  ثم +40 لكل سنة بعد الخامسة
     function fine(y) {
       return y <= 5 ? [0, 10, 25, 45, 75, 115][y] : 115 + 40 * (y - 5);
     }
 
-    // ---------- التحقق من شكل المستند وقيمه ----------
+    // ---------- شكل المستند وقيمه ----------
     function validMember(d) {
       return d.keys().hasOnly(['name', 'years', 'amount', 'stamp', 'totalAmount', 'paymentStatus',
                                'receiptNumber', 'paidAt', 'createdAt', 'updatedAt'])
@@ -32,16 +39,18 @@ service cloud.firestore {
               : (d.receiptNumber is string && d.receiptNumber.size() >= 1 && d.receiptNumber.size() <= 50
                  && d.paidAt is timestamp))
         && d.createdAt is timestamp
+        // serverTimestamp() القادم من التطبيق يصل هنا مساويًا لـ request.time، فيمنع تزوير التاريخ
         && d.updatedAt == request.time;
     }
 
     function canCreate() {
       let r = role();
       let d = request.resource.data;
-      return r in ['admin', 'staff']
+      return request.auth != null
+        && r in ['admin', 'staff']
         && validMember(d)
         && d.createdAt == request.time
-        // الموظف ينشئ سجلات غير مدفوعة فقط؛ المدير فقط يمكنه إنشاء سجل مدفوع (استيراد)
+        // الموظف: سجل غير مدفوع فقط. المدير فقط يمكنه إنشاء سجل مدفوع (استيراد)
         && (d.paymentStatus == 'unpaid' || (r == 'admin' && d.paidAt == request.time));
     }
 
@@ -49,29 +58,31 @@ service cloud.firestore {
       let r = role();
       let a = resource.data;
       let b = request.resource.data;
-      return r in ['admin', 'staff']
+      return request.auth != null
+        && r in ['admin', 'staff']
         && validMember(b)
         && b.createdAt == a.createdAt
         && (r == 'admin'
-              // المدير: تغيير الدفع مسموح، مع ضبط paidAt من السيرفر عند الانتقال إلى مدفوع
+              // المدير: دفع / إلغاء دفع / تعديل رقم الإيصال / تعديل البيانات
+              // paidAt يُضبط من السيرفر عند الانتقال إلى مدفوع، ويبقى ثابتًا عند تعديل الإيصال فقط
               ? (a.paymentStatus == b.paymentStatus
                    ? (b.paymentStatus == 'unpaid' || b.paidAt == a.paidAt)
                    : (b.paymentStatus == 'unpaid' || b.paidAt == request.time))
-              // الموظف: تعديل الاسم/السنوات لسجل غير مدفوع فقط، ولا يلمس حقول الدفع
+              // الموظف: تعديل الاسم والسنوات (والمبالغ المشتقة) لسجل غير مدفوع فقط
               : (a.paymentStatus == 'unpaid' && b.paymentStatus == 'unpaid'
                    && b.diff(a).affectedKeys().hasOnly(['name', 'years', 'amount', 'stamp', 'totalAmount', 'updatedAt'])));
     }
 
     match /membership_fines/{id} {
-      allow read: if role() in ['admin', 'staff'];
+      allow read: if request.auth != null && role() in ['admin', 'staff'];
       allow create: if canCreate();
       allow update: if canUpdate();
-      allow delete: if role() == 'admin';
+      allow delete: if request.auth != null && role() == 'admin';
     }
 
-    // يقرأ المستخدم مستند صلاحيته فقط؛ الكتابة من Firebase Console فقط
+    // يقرأ المستخدم مستند صلاحيته هو فقط، ولا أحد يكتب فيه من التطبيق (الإدارة من Console)
     match /allowed_users/{email} {
-      allow get: if request.auth != null && request.auth.token.email == email;
+      allow get: if request.auth != null && request.auth.token.email.lower() == email;
       allow list, write: if false;
     }
   }

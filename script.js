@@ -267,11 +267,29 @@ async function handleAuthState(user) {
   }
   showView("splash");                       // لا تظهر لوحة التحكم قبل التحقق من الصلاحية وتحميل البيانات
   try {
-    // مستند الصلاحية: allowed_users/{email} (القواعد تسمح للمستخدم بقراءة مستنده فقط)
-    const roleDoc = await db.collection("allowed_users").doc((user.email || "").toLowerCase()).get();
+    // مستند الصلاحية: allowed_users/{email}؛ اسم المستند = البريد بحروف صغيرة وبدون مسافات
+    const email = (user.email || "").trim().toLowerCase();
+    let roleDoc;
+    try {
+      roleDoc = await db.collection("allowed_users").doc(email).get();
+    } catch (e) {
+      if (e && e.code === "permission-denied") {
+        console.error("[auth] القواعد رفضت قراءة allowed_users/" + email + " — راجع القواعد وتأكد أن Rules منشورة.", e);
+        throw { code: "permission-denied" };
+      }
+      throw e;                                   // أخطاء الشبكة تُعرض كخطأ اتصال لا كعدم صلاحية
+    }
     if (seq !== authSeq) return;
-    if (!roleDoc.exists) throw { code: "permission-denied" };
-    isAdmin = roleDoc.data().role === "admin";
+    if (!roleDoc.exists) {
+      console.error("[auth] لا يوجد مستند allowed_users/" + email + " (اسم المستند يجب أن يطابق البريد تمامًا بحروف صغيرة).");
+      throw { code: "permission-denied" };
+    }
+    const role = roleDoc.data().role;
+    if (role !== "admin" && role !== "staff") {
+      console.error('[auth] قيمة role غير صالحة: ' + JSON.stringify(role) + ' — يجب أن تكون "admin" أو "staff" نصًا وبحروف صغيرة.');
+      throw { code: "permission-denied" };
+    }
+    isAdmin = role === "admin";
     $("userEmail").textContent = user.email || "";
     $("userRole").textContent = isAdmin ? "مدير" : "موظف";
     await startListening();
