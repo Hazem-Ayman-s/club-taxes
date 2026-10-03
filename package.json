@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "build": "node scripts/build.js",
-    "dev": "node scripts/build.js && npx serve dist"
+    "build": "node build.js",
+    "dev": "node build.js && npx serve dist"
   }
 }

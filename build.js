@@ -11,7 +11,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const root = path.join(__dirname, "..");
+const root = __dirname;
 const dist = path.join(root, "dist");
 
 // دعم .env.local للتشغيل المحلي (على Vercel تأتي القيم من Project Settings)
@@ -48,7 +48,7 @@ fs.mkdirSync(dist, { recursive: true });
 for (const f of ["index.html", "style.css", "script.js"]) fs.copyFileSync(path.join(root, f), path.join(dist, f));
 
 fs.writeFileSync(path.join(dist, "firebase-config.js"),
-`/* ملف مولَّد تلقائيًا من scripts/build.js — لا تعدله يدويًا */
+`/* ملف مولَّد تلقائيًا من build.js — لا تعدله يدويًا */
 /* إعدادات Firebase Web عامة بطبيعتها؛ الأمان يعتمد على Authentication + Firestore Rules */
 const firebaseConfig = ${JSON.stringify(config, null, 2)};
 
